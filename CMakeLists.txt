@@ -10,5 +10,15 @@ if(NOT CMAKE_BUILD_TYPE)
   set(CMAKE_BUILD_TYPE RelWithDebInfo)
 endif()
 
-add_executable(server src/main.cpp src/fake_model.cpp)
+if(CMAKE_BUILD_TYPE STREQUAL "Debug")
+  add_compile_options(-fsanitize=address,undefined -fno-omit-frame-pointer)
+  add_link_options(-fsanitize=address,undefined)
+endif()
+
+add_library(infserve_core src/fake_model.cpp)
+target_include_directories(infserve_core PUBLIC src)
+target_compile_options(infserve_core PRIVATE -Wall -Wextra -Wpedantic)
+
+add_executable(server src/main.cpp)
+target_link_libraries(server PRIVATE infserve_core)
 target_compile_options(server PRIVATE -Wall -Wextra -Wpedantic)
