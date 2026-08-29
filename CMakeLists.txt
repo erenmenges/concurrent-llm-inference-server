@@ -10,5 +10,5 @@ if(NOT CMAKE_BUILD_TYPE)
   set(CMAKE_BUILD_TYPE RelWithDebInfo)
 endif()
 
-add_executable(server src/main.cpp)
+add_executable(server src/main.cpp src/fake_model.cpp)
 target_compile_options(server PRIVATE -Wall -Wextra -Wpedantic)

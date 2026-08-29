@@ -9,8 +9,8 @@ using TokenID = std::int32_t;
 constexpr TokenID kEosToken = 0;
 
 struct Sequence {
-    std::vector<TokenID> prompt;
-    std::vector<TokenID> output;
+    std::vector<TokenID> prompt{};
+    std::vector<TokenID> output{};
     int max_new_tokens = 16;
     bool finished = false;
 };
