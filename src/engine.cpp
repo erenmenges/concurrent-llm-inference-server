@@ -1,51 +1,71 @@
 #include "engine.hpp"
 
+#include <chrono>
 #include <cstdio>
 #include <utility>
 
-std::vector<Response> run_static_batch(FakeModel& model, const std::vector<Request>& requests) {
-    std::vector<Sequence> batch;
-    batch.reserve(requests.size());
+RunResult run_static_batch(FakeModel& model, const std::vector<Request>& requests, std::size_t max_batch_size) {
+    const auto t0 = std::chrono::steady_clock::now();
 
-    for (const Request& req : requests) {
-        Sequence seq;
-        seq.prompt = req.prompt;
-        seq.max_new_tokens = req.max_tokens;
-        batch.push_back(seq);
-    }
+    RunResult result;
+    result.responses.reserve(requests.size());
+
+    std::size_t next_request = 0;
     int step_index = 0;
-    while (true) {
-        int active = 0;
-        for (const Sequence& seq : batch) {
-            if (!seq.finished) {active += 1;}
+    int wave_index = 0;
+
+    while (next_request < requests.size()) {
+        std::vector<Sequence> batch;
+
+        // fill batch slots with requests
+        while (batch.size() < max_batch_size && next_request < requests.size()) {
+            Sequence seq;
+            seq.prompt = requests[next_request].prompt;
+            seq.max_new_tokens = requests[next_request].max_tokens;
+            batch.push_back(seq);
+            next_request += 1;
         }
-        if (active == 0) {break;}
 
-        std::printf("step=%d slots=%zu active=%d\n",
-                    step_index, batch.size(), active);
-
-        const std::vector<TokenID> next = model.step(batch);
-        for (std::size_t i = 0; i < batch.size(); i++) {
-            Sequence& seq = batch[i];
-            if (seq.finished) { continue; }
-            if (next[i] == kEosToken) {
-                seq.finished = true;
-            } else {
-                seq.output.push_back(next[i]);
-                seq.finished = static_cast<int>(seq.output.size()) >= seq.max_new_tokens;
+        // process the batch statically
+        while (true) {
+            int active = 0;
+            for (const Sequence& seq : batch) {
+                if (!seq.finished) {active += 1;}
             }
+            if (active == 0) {break;}
+            
+            result.total_slot_steps += static_cast<long long>(batch.size());
+            result.wasted_slot_steps += static_cast<long long>(batch.size()) - active;
+
+            std::printf("wave=%d step=%d slots=%zu active=%d \n",
+                        wave_index, step_index, batch.size(), active);
+
+            const std::vector<TokenID> next = model.step(batch);
+            const std::chrono::duration<double, std::milli> now = std::chrono::steady_clock::now() - t0;
+
+            // append generated token to each sequence in batch
+            for (std::size_t i = 0; i < batch.size(); i++) {
+                Sequence& seq = batch[i];
+                if (seq.finished) {continue;}
+
+                if (next[i] == kEosToken) {seq.finished = true;}
+                else {
+                    seq.output.push_back(next[i]);
+                    seq.finished = static_cast<int>(seq.output.size()) >= seq.max_new_tokens;
+                }
+
+                if (seq.finished) {seq.finish_ms = now.count();}
+            }
+            step_index += 1;
         }
-        step_index += 1;
+
+        for (Sequence& seq : batch) {
+            Response resp;
+            resp.output = std::move(seq.output);
+            resp.finish_ms = seq.finish_ms;
+            result.responses.push_back(std::move(resp));
+        }
+        wave_index += 1;
     }
-
-    std::vector<Response> responses;
-    responses.reserve(batch.size());
-
-    for (Sequence& seq : batch) {
-        Response resp;
-        resp.output = std::move(seq.output);
-        responses.push_back(std::move(resp));
-    }
-
-    return responses;
+    return result;
 }

@@ -16,6 +16,7 @@ struct Sequence {
     std::vector<TokenID> output{};
     int max_new_tokens = 16;
     bool finished = false;
+    double finish_ms = 0.0;
 };
 
 

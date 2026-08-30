@@ -11,4 +11,5 @@ struct Request {
 
 struct Response {
     std::vector<TokenID> output{};
+    double finish_ms = 0.0;
 };
