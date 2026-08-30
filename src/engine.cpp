@@ -32,9 +32,9 @@ RunResult run_static_batch(FakeModel& model, const std::vector<Request>& request
                 if (!seq.finished) {active += 1;}
             }
             if (active == 0) {break;}
-            
-            result.total_slot_steps += static_cast<long long>(batch.size());
-            result.wasted_slot_steps += static_cast<long long>(batch.size()) - active;
+
+            result.total_slot_steps += static_cast<long long>(max_batch_size);
+            result.wasted_slot_steps += static_cast<long long>(max_batch_size) - active;
 
             const std::vector<TokenID> next = model.step(batch);
             const std::chrono::duration<double, std::milli> now = std::chrono::steady_clock::now() - t0;
@@ -101,7 +101,7 @@ RunResult run_continuous_batch(FakeModel& model, const std::vector<Request>& req
                 i += 1;
                 continue;
             }
-            Response& resp = result.responses[batch[i].id];
+            Response& resp = result.responses[batch[i].id]; // naively assumes id is the order in which requests come, will be changed later
             resp.id = batch[i].id;
             resp.output = std::move(batch[i].output);
             resp.finish_ms = batch[i].finish_ms;
