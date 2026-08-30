@@ -12,6 +12,7 @@ inline constexpr double kPerSeqLatencyMs = 0.2;
 
 
 struct Sequence {
+    std::size_t id = 0;
     std::vector<TokenID> prompt{};
     std::vector<TokenID> output{};
     int max_new_tokens = 16;

@@ -13,3 +13,4 @@ struct RunResult {
 };
 
 RunResult run_static_batch(FakeModel& model, const std::vector<Request>& requests, std::size_t max_batch_size);
+RunResult run_continuous_batch(FakeModel& model, const std::vector<Request>& requests, std::size_t max_batch_size);
