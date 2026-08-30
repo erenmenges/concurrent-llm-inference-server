@@ -12,5 +12,7 @@ struct RunResult {
     long long wasted_slot_steps = 0;
 };
 
-RunResult run_static_batch(FakeModel& model, const std::vector<Request>& requests, std::size_t max_batch_size);
-RunResult run_continuous_batch(FakeModel& model, const std::vector<Request>& requests, std::size_t max_batch_size);
+enum class Policy {Static, Continuous};
+
+
+RunResult run_batch(FakeModel& model, const std::vector<Request>& requests, std::size_t max_batch_size, Policy policy);

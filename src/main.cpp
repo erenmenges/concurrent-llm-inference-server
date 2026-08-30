@@ -43,11 +43,11 @@ int main() {
     const std::size_t cap = 8;
 
     const auto s0 = std::chrono::steady_clock::now();
-    const RunResult stat = run_static_batch(model, requests, cap);
+    const RunResult stat = run_batch(model, requests, cap, Policy::Static);
     const std::chrono::duration<double, std::milli> s_ms = std::chrono::steady_clock::now() - s0;
 
     const auto c0 = std::chrono::steady_clock::now();
-    const RunResult cont = run_continuous_batch(model, requests, cap);
+    const RunResult cont = run_batch(model, requests, cap, Policy::Continuous);
     const std::chrono::duration<double, std::milli> c_ms = std::chrono::steady_clock::now() - c0;
 
     report("static", stat, s_ms.count());
