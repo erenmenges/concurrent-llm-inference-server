@@ -13,9 +13,10 @@ endif()
 if(CMAKE_BUILD_TYPE STREQUAL "Debug")
   add_compile_options(-fsanitize=address,undefined -fno-omit-frame-pointer)
   add_link_options(-fsanitize=address,undefined)
+  add_compile_definitions(_GLIBCXX_ASSERTIONS)
 endif()
 
-add_library(infserve_core src/fake_model.cpp)
+add_library(infserve_core src/fake_model.cpp src/engine.cpp)
 target_include_directories(infserve_core PUBLIC src)
 target_compile_options(infserve_core PRIVATE -Wall -Wextra -Wpedantic)
 
