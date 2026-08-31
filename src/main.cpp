@@ -1,5 +1,8 @@
 #include "engine.hpp"
 
+
+#include <functional>
+#include <thread>
 #include <cmath>
 #include <cstdint>
 #include <random>
@@ -7,59 +10,74 @@
 #include <chrono>
 #include <vector>
 
-std::vector<Request> make_workload(std::size_t count, int min_len, int max_len, std::uint32_t seed) {
+constexpr std::size_t kClients = 4;
+constexpr std::size_t kPerClient = 60;
+constexpr double kMeanGapMs = 15.0;
+constexpr std::size_t kCap = 8;
+
+void client(Engine& engine, std::size_t client_id, std::uint32_t seed, std::vector<Response>& out) {
     std::mt19937 rng(seed);
-    std::uniform_real_distribution<double> log_len(std::log(static_cast<double>(min_len)), std::log(static_cast<double>(max_len)));
 
-    std::vector<Request> requests;
-    requests.reserve(count);
+    std::exponential_distribution<double> gap(1.0/kMeanGapMs);
+    std::uniform_real_distribution<double> log_len(std::log(8.0), std::log(256.0));
 
-    for (std::size_t i = 0; i < count; i++) {
+    std::vector<std::future<Response>> futures;
+    futures.reserve(kPerClient);
+
+    for (std::size_t i = 0; i < kPerClient; i++) {
+        std::this_thread::sleep_for(std::chrono::duration<double, std::milli>(gap(rng)));
         Request req;
-        req.id = i;
+        req.id = client_id * 1000 + i;
         req.max_tokens = static_cast<int>(std::exp(log_len(rng)));
-        requests.push_back(req);
+        futures.push_back(engine.submit(req));
     }
-    return requests;
+
+    for (std::future<Response>& f : futures) {
+        out.push_back(f.get());
+    }
 }
 
-void report(const char* name, const RunResult& result, double wall_ms) {
-    int total_tokens = 0;
-    for (const Response& resp : result.responses) {
-        total_tokens += static_cast<int>(resp.output.size());
-    }
-    std::printf("%-10s   wall=%7.0fms   tok=%6d   thr=%6.0f tok/s   slots=%7lld   wasted=%7lld (%2.0f%%)\n",
-            name, wall_ms, total_tokens, total_tokens / (wall_ms / 1000.0),
-            result.total_slot_steps, result.wasted_slot_steps,
-            100.0 * static_cast<double>(result.wasted_slot_steps)
-                    / static_cast<double>(result.total_slot_steps));
-}
-
-
-int main() {
+void run(const char* name, Policy policy) {
     FakeModel model(42);
+    Engine engine(model, kCap, policy);
 
-    const std::vector<Request> requests = make_workload(40, 8, 256, 42);
-    const std::size_t cap = 8;
+    std::vector<std::vector<Response>> results(kClients);
+    std::vector<std::thread> clients;
+    clients.reserve(kClients);
 
-    const auto s0 = std::chrono::steady_clock::now();
-    const RunResult stat = run_batch(model, requests, cap, Policy::Static);
-    const std::chrono::duration<double, std::milli> s_ms = std::chrono::steady_clock::now() - s0;
-
-    const auto c0 = std::chrono::steady_clock::now();
-    const RunResult cont = run_batch(model, requests, cap, Policy::Continuous);
-    const std::chrono::duration<double, std::milli> c_ms = std::chrono::steady_clock::now() - c0;
-
-    report("static", stat, s_ms.count());
-    report("continuous", cont, c_ms.count());
-
-
-    for (std::size_t i = 0; i < requests.size(); i++) {
-        std::printf("id=%2zu   len=%4d   static=%5.0fms   cont=%5.0fms\n",
-                    i, requests[i].max_tokens, stat.responses[i].finish_ms, cont.responses[i].finish_ms);
+    for(std::size_t i = 0; i < kClients; i++) {
+        clients.emplace_back(client, std::ref(engine), i, static_cast<std::uint32_t>(100 + i), std::ref(results[i]));
     }
 
+    for (std::thread& t : clients) {
+        t.join();
+    }
+    engine.stop();
+
+    std::vector<Response> all;
+    for (std::vector<Response>& per_client : results) {
+        for (Response& r : per_client) {
+            all.push_back(std::move(r));
+        }
+    }
+
+    double sum_ms = 0.0;
+    double max_ms = 0.0;
+
+    for (const Response& r : all) {
+        const double latency = r.finish_ms - r.submit_ms;
+        sum_ms += latency;
+        if (latency > max_ms) {max_ms = latency;}
+    }
+
+    std::printf("%-11s   n=%3zu   mean=%7.1fms    max=%7.1fms    slots=%6lld    idle=%6lld\n",
+                name, all.size(), sum_ms / static_cast<double>(all.size()), max_ms,
+                engine.total_slot_steps(), engine.wasted_slot_steps());
+}
+
+
+int main () {
+    run("Static", Policy::Static);
+    run("Continuous", Policy::Continuous);
     return 0;
-
-
 }

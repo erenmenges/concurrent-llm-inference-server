@@ -1,24 +1,14 @@
 #pragma once
 
+#include "request.hpp"
+
 #include <cstdint>
 #include <random>
 #include <vector>
 
-using TokenID = std::int32_t;
 
-constexpr TokenID kEosToken = 0;
 inline constexpr double kBaseLatencyMs = 5.0;
 inline constexpr double kPerSeqLatencyMs = 0.2;
-
-
-struct Sequence {
-    std::size_t id = 0;
-    std::vector<TokenID> prompt{};
-    std::vector<TokenID> output{};
-    int max_new_tokens = 16;
-    bool finished = false;
-    double finish_ms = 0.0;
-};
 
 
 class FakeModel {

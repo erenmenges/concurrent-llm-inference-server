@@ -1,6 +1,8 @@
 cmake_minimum_required(VERSION 3.24)
 project(infserve LANGUAGES CXX)
 
+find_package(Threads REQUIRED)
+
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
@@ -17,6 +19,7 @@ if(CMAKE_BUILD_TYPE STREQUAL "Debug")
 endif()
 
 add_library(infserve_core src/fake_model.cpp src/engine.cpp)
+target_link_libraries(infserve_core PUBLIC Threads::Threads)
 target_include_directories(infserve_core PUBLIC src)
 target_compile_options(infserve_core PRIVATE -Wall -Wextra -Wpedantic)
 
