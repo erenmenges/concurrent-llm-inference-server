@@ -5,7 +5,7 @@
 // constructor
 Engine::Engine(LlamaModel& model, Policy policy) : model_(model),policy_(policy), t0_(std::chrono::steady_clock::now()),worker_ () {
     free_seq_ids_.reserve(static_cast<std::size_t>(model_.n_seq_max()));
-    for (int i = model_.n_seq_max(); i >= 0; i--) {
+    for (int i = model_.n_seq_max() - 1; i >= 0; i--) {
         free_seq_ids_.push_back(i);
     }
     worker_ = std::thread([this] {loop();});
