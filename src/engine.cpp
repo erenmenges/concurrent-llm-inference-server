@@ -2,17 +2,17 @@
 
 #include <utility>
 
-Engine::Engine(FakeModel& model, std::size_t max_batch_size, Policy policy) : 
-                model_(model),
-                max_batch_size_(max_batch_size),
-                policy_(policy),
-                t0_(std::chrono::steady_clock::now()),
-                worker_([this] { loop(); }) 
-                {}
-
-Engine::~Engine() {
-    stop();
+// constructor
+Engine::Engine(LlamaModel& model, Policy policy) : model_(model),policy_(policy), t0_(std::chrono::steady_clock::now()),worker_ () {
+    free_seq_ids_.reserve(static_cast<std::size_t>(model_.n_seq_max()));
+    for (int i = model_.n_seq_max(); i >= 0; i--) {
+        free_seq_ids_.push_back(i);
+    }
+    worker_ = std::thread([this] {loop();});
 }
+
+// destructor
+Engine::~Engine() {stop();}
 
 double Engine::now_ms() const {
     std::chrono::duration<double, std::milli> d = std::chrono::steady_clock::now() - t0_;
@@ -22,9 +22,15 @@ double Engine::now_ms() const {
 std::future<Response> Engine::submit(const Request& req) {
     Sequence seq;
     seq.id = req.id;
-    seq.prompt = req.prompt;
+    seq.prompt = model_.tokenize(req.prompt, true);
     seq.max_new_tokens = req.max_tokens;
     seq.submit_ms = now_ms();
+
+    const int need = static_cast<int>(seq.prompt.size()) + seq.max_new_tokens;
+    if (need > model_.n_ctx()) {
+        throw std::runtime_error("prompt too big to fit in our kv cache, ever.");
+    }
+
     std::future<Response> fut = seq.promise.get_future();
     {
         std::lock_guard<std::mutex> lock(mu_);
@@ -38,9 +44,7 @@ std::future<Response> Engine::submit(const Request& req) {
 void Engine::stop() {
     {
         std::lock_guard<std::mutex> lock(mu_);
-        if (stopping_) {
-            return;
-        }
+        if (stopping_) {return;}
         stopping_ = true;
     }
     work_ready_.notify_all();
@@ -49,6 +53,7 @@ void Engine::stop() {
 
 void Engine::loop() {
     for (;;) {
+        std::vector<Sequence> admitted;
         {
             std::unique_lock<std::mutex> lock(mu_);
 
@@ -62,30 +67,73 @@ void Engine::loop() {
             }
 
             const bool may_admit = (policy_ == Policy::Continuous) || batch_.empty();
-            while (may_admit && batch_.size() < max_batch_size_ && !queue_.empty()) {
-                batch_.push_back(std::move(queue_.front()));
+            while (may_admit && !queue_.empty() && !free_seq_ids_.empty()) {  // !free_seq_ids_.empty() means only admit if there is a slot for a seq
+                Sequence& head = queue_.front();  // we make it a seq reference first because we need to look inside for kv capacity calculation
+                const int need = static_cast<int>(head.prompt.size()) + head.max_new_tokens;
+                if (kv_committed_ + need > model_.n_ctx()) {break;}  // block until there's room for this seq. head of line blocking.
+
+                head.seq_id = free_seq_ids_.back();
+                free_seq_ids_.pop_back();
+                head.kv_reserved = need;
+                kv_committed_ += need;
+
+                admitted.push_back(std::move(head));
                 queue_.pop_front();
             }
         }
-        step_once();
+        for(Sequence& seq : admitted) {
+            seq.output.push_back(model_.prefill(seq));
+            if (check_finished(seq, now_ms())) {
+                retire(seq);
+            } else {
+                batch_.push_back(std::move(seq));
+            }
+        }
+
+        if (!batch_.empty()) {
+            step_once();
+        }
     }
 
 }
 
+bool Engine::check_finished(Sequence& seq, double t) {
+    const bool hit_limit = static_cast<int>(seq.output.size()) >= seq.max_new_tokens;
+    const bool hit_eos = model_.is_eos(seq.output.back());
+    if (!hit_limit && !hit_eos) {return false;}  //demorgan's law for (hit_limit || hit_eos)
+
+    seq.finished = true;
+    seq.finish_ms = t;
+    return true;
+}
+
+void Engine::retire(Sequence& seq) {
+    Response resp;
+    resp.id = seq.id;
+    resp.output = model_.detokenize(seq.output);
+    resp.n_generated = static_cast<int>(seq.output.size());
+    resp.submit_ms = seq.submit_ms;
+    resp.finish_ms = seq.finish_ms;
+
+    model_.release(seq.seq_id);
+    free_seq_ids_.push_back(seq.seq_id);
+    kv_committed_ -= seq.kv_reserved;
+
+    seq.promise.set_value(std::move(resp));
+}
+
+
 
 void Engine::step_once() {
-    total_slot_steps_ += static_cast<long long>(max_batch_size_);
-    wasted_slot_steps_ += static_cast<long long>(max_batch_size_) - static_cast<long long>(batch_.size());
+    total_kv_steps_ += model_.n_ctx();
+    idle_kv_steps_ += model_.n_ctx() - kv_committed_;
 
     const std::vector<TokenID> next = model_.step(batch_);
     const double finish_ms = now_ms();
 
     for (std::size_t i = 0; i < batch_.size(); i++) {
         batch_[i].output.push_back(next[i]);
-        if (static_cast<int>(batch_[i].output.size()) >= batch_[i].max_new_tokens) {
-            batch_[i].finished = true;
-            batch_[i].finish_ms = finish_ms;
-        }
+        check_finished(batch_[i], finish_ms);
     }
 
     for (std::size_t i = 0; i < batch_.size(); ) {
@@ -93,14 +141,7 @@ void Engine::step_once() {
             i += 1;
             continue;
         }
-        Sequence& seq = batch_[i];
-        Response resp;
-        resp.id = seq.id;
-        resp.output = std::move(seq.output);
-        resp.submit_ms = seq.submit_ms;
-        resp.finish_ms = seq.finish_ms;
-        seq.promise.set_value(std::move(resp));
-        
+        retire(batch_[i]);        
         batch_.erase(batch_.begin() + static_cast<std::ptrdiff_t>(i));
     }
 }
