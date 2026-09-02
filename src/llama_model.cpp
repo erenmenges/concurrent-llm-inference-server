@@ -21,7 +21,7 @@ namespace {
 } // namespace closed
 
 
-LlamaModel::LlamaModel(const std::string& gguf_path, int n_ctx, int n_seq_max) : n_ctx_(n_ctx), n_seq_max_(n_seq_max) {
+LlamaModel::LlamaModel(const std::string& gguf_path, int n_ctx, int n_seq_max, int n_threads) : n_ctx_(n_ctx), n_seq_max_(n_seq_max) {
         llama_backend_init();
 
         // llama first initializes a default struct then assigns the real values to be C compatible
@@ -43,6 +43,8 @@ LlamaModel::LlamaModel(const std::string& gguf_path, int n_ctx, int n_seq_max) :
         // llama_decode() stuff
         cparams.n_batch = static_cast<uint32_t>(n_ctx);
         cparams.n_ubatch = static_cast<uint32_t>(n_ctx);
+        cparams.n_threads_batch = n_threads;
+        cparams.n_threads = n_threads;
 
         ctx_ = llama_init_from_model(model_, cparams);
         if (ctx_ == nullptr) {

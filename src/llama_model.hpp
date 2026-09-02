@@ -9,7 +9,7 @@
 
 class LlamaModel {
 public:
-    LlamaModel(const std::string& gguf_path, int n_ctx, int n_seq_max);
+    LlamaModel(const std::string& gguf_path, int n_ctx, int n_seq_max, int n_threads);
     ~LlamaModel();
 
     LlamaModel(const LlamaModel&) = delete; //disable copy constructor

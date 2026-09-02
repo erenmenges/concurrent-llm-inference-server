@@ -5,3 +5,5 @@ compile_commands.json
 .cache/
 .cache
 .git-backup/
+bench_*.txt
+models/

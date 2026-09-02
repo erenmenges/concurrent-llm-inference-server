@@ -13,6 +13,7 @@
 
 constexpr int kNCtx = 4096; // total kv cache capacity
 constexpr int kNSeqMax = 8; // max sequences in a batch
+constexpr int kNThreads = 8; //threads that llama_decode will use
 
 constexpr std::size_t kClients = 16;
 constexpr std::size_t kPerClient = 8;
@@ -104,7 +105,7 @@ int main (int argc, char** argv) {
     }
 
 
-    LlamaModel model(argv[1], kNCtx, kNSeqMax);
+    LlamaModel model(argv[1], kNCtx, kNSeqMax, kNThreads);
 
     run(model, "Static", Policy::Static);
     run(model, "Continuous", Policy::Continuous);
